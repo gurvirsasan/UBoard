@@ -1,48 +1,61 @@
-import { Post } from '../../models/post';
+import { Comment } from '../../models/comment';
 import db from '../../models';
 
-// The return type of a Post associated with the Post's User.
-export type PostUser = Post & { User: { firstName: string; lastName: string } };
+// The return type of a Comment associated with the Post's User.
+export type CommentsUser = Comment & {
+  User: { firstName: string; lastName: string };
+};
 
 // The maximum number of results to return.
 const MAX_RESULTS = 50;
 
-export default class PostController {
-  protected postsRepo: typeof Post;
+export default class CommentController {
+  protected commentsRepo: typeof Comment;
 
-  constructor(postsRepo: typeof Post) {
-    this.postsRepo = postsRepo;
+  constructor(commentsRepo: typeof Comment) {
+    this.commentsRepo = commentsRepo;
   }
 
   /**
-   * CRUD method to get all the posts.
+   * CRUD method to get all the comments.
    *
-   * @param limit - Limit the posts to a number of results.
-   * @param offset - Offset the results
+   * @param postID  - The identifier used to find the specific post.
+   * @param limit   - Limit the comments to a number of results.
+   * @param offset  - Offset the results
    * @returns A data object containing the results.
    */
-  async getPosts(
+  async getComments(
+    postID: string,
     limit: number,
     offset: number
-  ): Promise<{ status: number; data: { result?: PostUser[]; count: number } }> {
-    const data = await this.postsRepo.findAndCountAll({
+  ): Promise<{
+    status: number;
+    data: { result?: CommentsUser[]; count?: number; message?: string };
+  }> {
+    const data = await this.commentsRepo.findByPk(postID, {
       limit: limit > MAX_RESULTS ? MAX_RESULTS : limit,
       // Since we are returning multiple results, we want to limit the data. This data will be shown
       // in a list, so ignoring body is ok as it won't be displayed anyway.
-      attributes: ['id', 'title', 'feedbackScore', 'createdAt'],
+      attributes: ['id', 'body'],
       include: [
         {
-          model: db.User,
-          attributes: ['firstName', 'lastName', 'userName'],
+          model: db.Post,
+          attributes: ['id', 'title', 'body', 'createdAt'],
         },
       ],
       order: [['createdAt', 'DESC']],
       offset: offset,
     });
 
+    if (!data) {
+      return {
+        status: 404,
+        data: { message: `Post ${postID} could not be found` },
+      };
+    }
     return {
-      status: data.count > 0 ? 200 : 204,
-      data: { result: data.rows as PostUser[], count: data.count },
+      status: 200,
+      data: { result: data. as PostUser[], count: data.count }, // TODO CONFUSED HERE WHAT TO RETURN
     };
   }
 
@@ -50,20 +63,24 @@ export default class PostController {
    * Search for the post by the given ID if it exists.
    *
    * @param postID - The identifier used to find the specific post.
+   * @param userID = The identifier used to find the specific user's comments
    * @returns The details of the post
    */
-  async getPost(postID: string): Promise<{
+  async getComment(
+    postID: string,
+    userID: string
+  ): Promise<{
     status: number;
-    data: { result?: PostUser; message?: string };
+    data: { result?: CommentsUser; message?: string };
   }> {
-    const data = (await this.postsRepo.findByPk(postID, {
+    const data = (await this.commentsRepo.findByPk(postID, {
       include: [
         {
           model: db.User,
           attributes: ['firstName', 'lastName', 'userName'],
         },
       ],
-    })) as PostUser;
+    })) as CommentsUser;
 
     if (!data) {
       return {
@@ -87,7 +104,7 @@ export default class PostController {
     userId: string,
     postID: string
   ): Promise<{ status: number; data?: { message?: string } }> {
-    const result = await this.postsRepo.findOne({ where: { id: postID } });
+    const result = await this.commentsRepo.findOne({ where: { id: postID } });
 
     if (!result) {
       return {
@@ -113,7 +130,10 @@ export default class PostController {
   private async vote(
     postID: string,
     amount: 1 | -1
-  ): Promise<{ status: number; data?: { result?: Post; message?: string } }> {
+  ): Promise<{
+    status: number;
+    data?: { result?: Comment; message?: string };
+  }> {
     // TODO: We should track which users voted and how frequently, and take action to prevent vote
     // spamming.
     const data = await this.getPost(postID);
@@ -140,29 +160,6 @@ export default class PostController {
   }
 
   /**
-   * Downvote a given post.
-   *
-   * @param postID - The post to downvote.
-   * @returns A status object indicating whether the post was downvoted.
-   */
-  async report(
-    postID: string
-  ): Promise<{ status: number; data?: { result?: Post; message?: string } }> {
-    return this.vote(postID, -1);
-  }
-
-  /**
-   * Upvote a given post.
-   * @param postID - The post to upvote.
-   * @returns A status object indivating whether the post was upvoted.
-   */
-  async upVote(
-    postID: string
-  ): Promise<{ status: number; data?: { result?: Post; message?: string } }> {
-    return this.vote(postID, 1);
-  }
-
-  /**
    * @returns Create a new post and return it.
    */
   async createPost(
@@ -176,7 +173,7 @@ export default class PostController {
       return { status: 400, data: { message: 'Missing fields.' } };
     }
 
-    const post = await this.postsRepo.create({
+    const post = await this.commentsRepo.create({
       title: title,
       body: body,
       location: location,
@@ -206,7 +203,10 @@ export default class PostController {
     body?: string,
     location?: string,
     capacity?: number
-  ): Promise<{ status: number; data?: { message?: string; result?: Post } }> {
+  ): Promise<{
+    status: number;
+    data?: { message?: string; result?: Comment };
+  }> {
     const post = (await this.getPost(postID)).data.result;
 
     if (post && post.UserId == currentUserId) {
